@@ -352,6 +352,15 @@ function checkPass(){
         </div>
       </div>
       <div class="filter-section">
+        <div class="filter-label">Season</div>
+        <div class="filter-chips" id="f-season">
+          <div class="chip active" data-val="all">All</div>
+          <div class="chip" data-val="2023/24">2023/24</div>
+          <div class="chip" data-val="2024/25">2024/25</div>
+          <div class="chip" data-val="2025/26">2025/26</div>
+        </div>
+      </div>
+      <div class="filter-section">
         <div class="filter-label">Min Copa Score: <span id="copa-lbl">0</span></div>
         <div class="range-container"><input type="range" id="f-copa" min="0" max="100" value="0" step="1"></div>
       </div>
@@ -619,7 +628,7 @@ const AG_DOT = {U12:'#7BAAFF',U13:'#7DC880',U14:'#FFD060',U15:'#FFA060',U16:'#6B
 const AG_CLS = ag => 'ag-'+(ag||'').toLowerCase();
 
 // ---------- Scout View State ----------
-let filters={ag:'all',gender:'all',bq:'all',mat:'all',pos:'all',copaMin:0,search:''};
+let filters={ag:'all',gender:'all',bq:'all',mat:'all',pos:'all',season:'all',copaMin:0,search:''};
 let sortBy='copaScore', viewMode='grid';
 
 // ---------- Methodology State ----------
@@ -647,12 +656,25 @@ function showPage(p){
 }
 
 // ---------- Scout Filtering ----------
+
+function getSeasonForDate(sd){
+  if(!sd) return null;
+  const parts=sd.split('/'); if(parts.length!==3) return null;
+  const d=new Date(+parts[2],+parts[0]-1,+parts[1]);
+  if(d<=new Date(2024,7,31)) return '2023/24';
+  if(d<=new Date(2025,7,31)) return '2024/25';
+  return '2025/26';
+}
+function playerHasSeason(p, season){
+  return p.assessments.some(a=>getSeasonForDate(a.scoreDate)===season);
+}
 function getFiltered(){
   return PLAYERS.filter(p=>{
     if(filters.ag!=='all'&&!p.assessments.some(a=>a.ageGroup===filters.ag))return false;
     if(filters.gender!=='all'&&p.gender!==filters.gender)return false;
     if(filters.bq!=='all'&&p.birthQuarter!==filters.bq)return false;
     if(filters.mat!=='all'&&p.maturation!==filters.mat)return false;
+    if(filters.season!=='all'&&!playerHasSeason(p,filters.season))return false;
     if(filters.pos!=='all'){const h=p.assessments.some(a=>a.position===filters.pos);if(!h)return false;}
     if(filters.copaMin>0&&(p.copaScore==null||p.copaScore<filters.copaMin))return false;
     if(filters.search){
@@ -675,7 +697,13 @@ function render(){
   grid.className='player-grid'+(viewMode==='list'?' list-view':'');
   if(!filtered.length){grid.innerHTML='<div class="no-results"><div style="font-size:40px;margin-bottom:12px">⚽</div><div>No players match your filters</div></div>';return;}
   grid.innerHTML=filtered.map(p=>{
-    const l=filters.ag!=='all'?(p.assessments.find(a=>a.ageGroup===filters.ag)||p.assessments[0]):p.assessments[0];
+    const l=(filters.ag!=='all'&&filters.season!=='all')
+    ?(p.assessments.find(a=>a.ageGroup===filters.ag&&getSeasonForDate(a.scoreDate)===filters.season)||p.assessments.find(a=>a.ageGroup===filters.ag)||p.assessments[0])
+    :filters.ag!=='all'
+    ?(p.assessments.find(a=>a.ageGroup===filters.ag)||p.assessments[0])
+    :filters.season!=='all'
+    ?(p.assessments.find(a=>getSeasonForDate(a.scoreDate)===filters.season)||p.assessments[0])
+    :p.assessments[0];
     return`<div class="player-card" onclick="openModal(${p.id})">
       <div class="card-top">
         <div>
@@ -684,7 +712,7 @@ function render(){
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
           <div class="ag-badge ${AG_CLS(l.ageGroup)}">${l.ageGroup}</div>
-          ${p.numAssessments>1?`<div style="font-size:9px;color:var(--muted)">${p.numAssessments} assessments</div>`:''}
+          ${(()=>{const s=getSeasonForDate(l.scoreDate);return s?`<div style="font-size:9px;color:#6B9FDB">${s}</div>`:''})()}${p.numAssessments>1?`<div style="font-size:9px;color:var(--muted)">${p.numAssessments} assessments</div>`:''}
         </div>
       </div>
       <div class="card-scores">
@@ -708,7 +736,15 @@ function openModal(id){
   const p=PLAYERS.find(x=>x.id===id);if(!p)return;
   document.getElementById('m-name').textContent=p.name||'Unknown';
   document.getElementById('m-sub').textContent=`${p.gender==='Male'?'Male':'Female'} · DOB: ${p.dob||'—'} · Birth Quarter: ${p.birthQuarter||'—'}`;
-  const defIdx=filters.ag!=='all'?Math.max(0,p.assessments.findIndex(a=>a.ageGroup===filters.ag)):0;
+  const defIdx=(()=>{
+  if(filters.ag!=='all'&&filters.season!=='all'){
+    const i=p.assessments.findIndex(a=>a.ageGroup===filters.ag&&getSeasonForDate(a.scoreDate)===filters.season);
+    return i>=0?i:Math.max(0,p.assessments.findIndex(a=>a.ageGroup===filters.ag));
+  }
+  if(filters.ag!=='all') return Math.max(0,p.assessments.findIndex(a=>a.ageGroup===filters.ag));
+  if(filters.season!=='all') return Math.max(0,p.assessments.findIndex(a=>getSeasonForDate(a.scoreDate)===filters.season));
+  return 0;
+})();
   renderModalBody(p,defIdx);
   document.getElementById('modal-overlay').classList.add('open');
 }
@@ -806,16 +842,17 @@ function setupChips(id,key){
   });
 }
 setupChips('f-ag','ag');setupChips('f-gender','gender');setupChips('f-bq','bq');
+setupChips('f-season','season');
 setupChips('f-mat','mat');setupChips('f-pos','pos');
 document.getElementById('f-copa').addEventListener('input',e=>{filters.copaMin=+e.target.value;document.getElementById('copa-lbl').textContent=e.target.value;render();});
 document.getElementById('sort-sel').addEventListener('change',e=>{sortBy=e.target.value;render();});
 document.getElementById('search-input').addEventListener('input',e=>{filters.search=e.target.value;render();});
 function setView(m){viewMode=m;document.getElementById('grid-btn').classList.toggle('active',m==='grid');document.getElementById('list-btn').classList.toggle('active',m==='list');render();}
 function resetFilters(){
-  filters={ag:'all',gender:'all',bq:'all',mat:'all',pos:'all',copaMin:0,search:''};
+  filters={ag:'all',gender:'all',bq:'all',mat:'all',pos:'all',season:'all',copaMin:0,search:''};
   document.getElementById('search-input').value='';document.getElementById('f-copa').value=0;
   document.getElementById('copa-lbl').textContent='0';document.getElementById('sort-sel').value='copaScore';sortBy='copaScore';
-  ['f-ag','f-gender','f-bq','f-mat','f-pos'].forEach(id=>document.querySelectorAll('#'+id+' .chip').forEach((c,i)=>c.classList.toggle('active',i===0)));
+  ['f-ag','f-gender','f-bq','f-mat','f-pos','f-season'].forEach(id=>document.querySelectorAll('#'+id+' .chip').forEach((c,i)=>c.classList.toggle('active',i===0)));
   render();
 }
 
